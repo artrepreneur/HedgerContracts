@@ -77,6 +77,8 @@ contract HedgerDex is AccessControl {
     address constant private ONEINCH_ROUTER = address(0x11111112542D85B3EF69AE05771c2dCCff4fAa26);
     address constant private ONEINCH_EXCHANGE = address(0x11111254369792b2Ca5d084aB5eEA397cA8fa48B);
     address constant private UNISWAP_ROUTER = address(0xf164fC0Ec4E93095b804a4795bBe1e041497b92a);
+    address WETH = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    IOneSplitAudit oneInchRouter = IOneSplitAudit(ONEINCH_ROUTER);
 
     // Definition for deposits
     mapping(address => mapping(address => uint256)) deposits;
@@ -123,7 +125,7 @@ contract HedgerDex is AccessControl {
         emit AdminRevoked(to);
     }
 
-
+    
     function addNonPoolToken(address _token, address _priceFeed) public onlyRole(FUND_MANAGER_ROLE) {
         // Add the token to the nonPoolTokens array if it doesn't already exist
         if (!isNonPoolToken(_token)) {
@@ -354,6 +356,11 @@ contract HedgerDex is AccessControl {
         emit TokenSwapped(_toToken, amountOut);
     }
 
+    function getEthPrice() public view returns (uint256) {
+        (,int256 price,,,) = AggregatorV3Interface(ETH_PRICE_FEED).latestRoundData();
+        return uint256(price) * (10 ** (18 - ETH_DECIMALS));
+    }
+
     function getExpectedTokenPrice(address _token, uint256 _amount) internal view returns (uint256) {
         uint256 decimals = uint256(IERC20(_token).decimals());
         uint256 amountWithDecimals = _amount * 10**decimals;
@@ -483,6 +490,7 @@ contract HedgerDex is AccessControl {
         emit ProposalCreated(proposalCount, _description);
     }
 
+    /*
     function vote(uint256 _proposalId, bool _support) public {
         // Get the proposal
         Proposal storage p = proposals[_proposalId];
@@ -492,7 +500,8 @@ contract HedgerDex is AccessControl {
         require(!p.executed, "Proposal has already been executed");
 
         // Get the voter's balance
-        uint256 balance = IERC20(token).balanceOf(msg.sender);
+        uint256 balance = shareBalances[msg.sender]; 
+        //IERC20(token).balanceOf(msg.sender);//
 
         // Update the vote count
         if (_support) {
@@ -523,7 +532,7 @@ contract HedgerDex is AccessControl {
 
         // Mark the proposal as executed
         p.executed = true;
-    }
+    }*/
 }
 
 
