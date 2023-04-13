@@ -16,7 +16,30 @@ import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
-contract HedgeFund is AccessControl {
+interface IOneSplitAudit {
+    function getExpectedReturn(
+        address fromToken,
+        address toToken,
+        uint256 amount,
+        uint256 parts,
+        uint256 flags
+    ) external view returns (uint256 returnAmount, uint256[] memory distribution);
+}
+
+/*
+interface IUniswapV2Router02 {
+    function WETH() external pure returns (address);
+    function swapExactTokensForTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+}*/
+
+
+contract HedgerDex is AccessControl {
     using SafeERC20 for IERC20;
 
     bytes32 public constant FUND_MANAGER_ROLE = keccak256("FUND_MANAGER_ROLE");
@@ -45,19 +68,34 @@ contract HedgeFund is AccessControl {
     event Withdrawal(address indexed user, uint256 amount);
     event Swap(address indexed user, uint256 amountIn, uint256 amountOut);
     event TokenSwapped(address indexed token, uint256 amount);
-    
+    event ProposalCreated(uint256 indexed proposalId, string description);
     event FundManagerSet(address indexed oldFundManager, address indexed newFundManager);
+    event AdminGranted(address to);
+    event AdminRevoked(address to);
 
     address public fundManagementWallet;
-    address constant private ONEINCH_ROUTER = 0x11111112542D85B3EF69AE05771c2dCCff4fAa26;
-    address constant private ONEINCH_EXCHANGE = 0x11111254369792b2Ca5d084aB5eEA397cA8fa48B;
+    address constant private ONEINCH_ROUTER = address(0x11111112542D85B3EF69AE05771c2dCCff4fAa26);
+    address constant private ONEINCH_EXCHANGE = address(0x11111254369792b2Ca5d084aB5eEA397cA8fa48B);
     address constant private UNISWAP_ROUTER = address(0xf164fC0Ec4E93095b804a4795bBe1e041497b92a);
 
     // Definition for deposits
     mapping(address => mapping(address => uint256)) deposits;
     mapping(address => AggregatorV3Interface) public tokenPriceFeeds;
 
-    constructor(address _stablecoin) {
+
+    struct Proposal {
+        string description;
+        uint256 forVotes;
+        uint256 againstVotes;
+        uint256 totalVotes;
+        bool executed;
+    }
+
+
+    mapping(uint256 => Proposal) public proposals;
+    uint256 public proposalCount;
+
+    constructor() {//address _stablecoin
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _setupRole(FUND_MANAGER_ROLE, msg.sender);
         stablecoin = IERC20(_stablecoin);
@@ -68,6 +106,23 @@ contract HedgeFund is AccessControl {
         tokenPriceFeeds[_ethToken] = ethPriceFeed;
         
     }
+
+    modifier onlyAdmin() {
+        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Ownable");
+        _;
+    }
+
+    function grantAdmin(address to) public onlyAdmin {
+        grantRole(DEFAULT_ADMIN_ROLE, to);
+        emit AdminGranted(to);
+    }
+
+    function revokeAdmin(address to) public onlyAdmin { 
+        require(hasRole(DEFAULT_ADMIN_ROLE, to), "Ownable");
+        revokeRole(DEFAULT_ADMIN_ROLE, to);
+        emit AdminRevoked(to);
+    }
+
 
     function addNonPoolToken(address _token, address _priceFeed) public onlyRole(FUND_MANAGER_ROLE) {
         // Add the token to the nonPoolTokens array if it doesn't already exist
@@ -97,12 +152,6 @@ contract HedgeFund is AccessControl {
         require(_newFundManager != address(0), "Invalid address");
         fundManagementWallet = _newFundManager;
         emit FundManagerSet(oldFundManager, _newFundManager);
-    }
-
-    mapping(address => uint256) public unlockTimes;
-
-    function canWithdraw(address _account) public view returns (bool) {
-        return (unlockTimes[_account] <= block.timestamp);
     }
 
     mapping(address => uint256) public depositedAt; // Add this mapping to track deposit times
@@ -167,6 +216,7 @@ contract HedgeFund is AccessControl {
 
         return nav;
     }
+
 
     function removeLiquidity(uint256 _shareAmount) public {
         require(_shareAmount > 0, "Amount must be greater than zero");
@@ -263,8 +313,8 @@ contract HedgeFund is AccessControl {
         // Add the token to the tokenPriceFeeds mapping if it doesn't already exist
         if (tokenPriceFeeds[_fromToken] == address(0)) {
             // Set the price feed for the token
-            address priceFeed = getPriceFeedAddress(_fromToken);// get the address of the price feed for the token
-            tokenPriceFeeds[_fromToken] = priceFeed;
+            address tokenPriceFeed = getPriceFeedAddress(_fromToken);// get the address of the price feed for the token
+            tokenPriceFeeds[_fromToken] = tokenPriceFeed;
         }
     }
 
@@ -329,10 +379,10 @@ contract HedgeFund is AccessControl {
         require(_expectedPrice > 0, "Invalid expected price");
 
         // Approve 1inch router to spend tokens
-        IERC20(_fromToken).approve(address(1inchRouter), _amountIn);
+        IERC20(_fromToken).approve(address(oneInchRouter), _amountIn);
 
         // Call 1inch swap function with limit order
-        (uint256 returnAmount,) = 1inchRouter.swap(
+        (uint256 returnAmount,) = oneInchRouter.swap(
             _fromToken,
             _toToken,
             _amountIn,
@@ -349,26 +399,9 @@ contract HedgeFund is AccessControl {
         IERC20(_toToken).safeTransfer(msg.sender, returnAmount);
     }
 
-    interface IOneSplitAudit {
-        function getExpectedReturn(
-            address fromToken,
-            address toToken,
-            uint256 amount,
-            uint256 parts,
-            uint256 flags
-        ) external view returns (uint256 returnAmount, uint256[] memory distribution);
-    }
+ 
+    
 
-    interface IUniswapV2Router02 {
-        function WETH() external pure returns (address);
-        function swapExactTokensForTokens(
-            uint256 amountIn,
-            uint256 amountOutMin,
-            address[] calldata path,
-            address to,
-            uint256 deadline
-        ) external returns (uint256[] memory amounts);
-    }
 
 
     function grantRole(bytes32 role, address account) public onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -378,39 +411,120 @@ contract HedgeFund is AccessControl {
     function revokeRole(bytes32 role, address account) public onlyRole(DEFAULT_ADMIN_ROLE) {
         revokeRole(role, account);
     }
-}
 
-function getNonPoolTokenBalances() public view returns (address[] memory, uint256[] memory) {
-    uint256[] memory balances = new uint256[](nonPoolTokens.length);
 
-    for (uint256 i = 0; i < nonPoolTokens.length; i++) {
-        address token = nonPoolTokens[i];
-        uint256 tokenBalance = IERC20(token).balanceOf(address(this));
-        balances[i] = tokenBalance;
+    function getNonPoolTokenBalances() public view returns (address[] memory, uint256[] memory) {
+        uint256[] memory NPTbalances = new uint256[](nonPoolTokens.length);
+
+        for (uint256 i = 0; i < nonPoolTokens.length; i++) {
+            address token = nonPoolTokens[i];
+            uint256 tokenBalance = IERC20(token).balanceOf(address(this));
+            NPTbalances[i] = tokenBalance;
+        }
+
+        return (nonPoolTokens, NPTbalances);
     }
 
-    return (nonPoolTokens, balances);
-}
+    function getTvl() public view returns (uint256) {
+        uint256 tvl = 0;
 
-function getTvl() public view returns (uint256) {
-    uint256 tvl = 0;
+        // Calculate the total value in stablecoins
+        uint256 stablecoinBalance = stablecoin.balanceOf(address(this));
+        (, int256 stablecoinPrice, , , ) = tokenPriceFeeds[address(stablecoin)].latestRoundData();
+        tvl += uint256(stablecoinPrice) * stablecoinBalance;
 
-    // Calculate the total value in stablecoins
-    uint256 stablecoinBalance = stablecoin.balanceOf(address(this));
-    (, int256 stablecoinPrice, , , ) = tokenPriceFeeds[address(stablecoin)].latestRoundData();
-    tvl += uint256(stablecoinPrice) * stablecoinBalance;
+        // Calculate the total value of non-pool tokens in the contract
+        for (uint256 i = 0; i < nonPoolTokens.length; i++) {
+            address token = nonPoolTokens[i];
+            uint256 tokenBalance = IERC20(token).balanceOf(address(this));
+            if (tokenBalance > 0) {
+                (, int256 tokenPrice, , , ) = AggregatorV3Interface(tokenPriceFeeds[token]).latestRoundData();
+                uint256 decimals = uint256(IERC20(token).decimals());
+                tvl += uint256(tokenPrice) * tokenBalance / (10 ** decimals);
+            }
+        }
 
-    // Calculate the total value of non-pool tokens in the contract
-    for (uint256 i = 0; i < nonPoolTokens.length; i++) {
-        address token = nonPoolTokens[i];
-        uint256 tokenBalance = IERC20(token).balanceOf(address(this));
-        if (tokenBalance > 0) {
-            (, int256 tokenPrice, , , ) = AggregatorV3Interface(tokenPriceFeeds[token]).latestRoundData();
-            uint256 decimals = uint256(IERC20(token).decimals());
-            tvl += uint256(tokenPrice) * tokenBalance / (10 ** decimals);
+        return tvl;
+    }
+
+    function getTokenPrice(address _token) public view returns (uint256) 
+    {
+        if (_token == address(stablecoin)) {
+            // Stablecoin has a fixed price of 1
+            return 10**uint256(IERC20(_token).decimals());
+        } else {
+            // Get the expected return from 1inch for swapping 1 token to WETH
+            uint256 amountWithDecimals = 10**uint256(IERC20(_token).decimals());
+            (uint256 expectedReturn, ) = IOneSplitAudit(ONEINCH_ROUTER).getExpectedReturn(_token, WETH, amountWithDecimals, 1, 0);
+
+            // Calculate the token price based on the expected return from 1inch and the current ETH price
+            uint256 expectedReturnWithDecimals = expectedReturn / 10**uint256(IERC20(_token).decimals());
+            uint256 ethPrice = getEthPrice();
+            uint256 tokenPrice = ethPrice * expectedReturnWithDecimals;
+
+            return tokenPrice;
         }
     }
 
-    return tvl;
+    function getTokenPriceFeed(address _token) public view returns (address) {
+        return tokenPriceFeeds[_token];
+    }
+
+
+    function createProposal(string memory _description) public {
+        // Increment the proposal count
+        proposalCount++;
+
+        // Create a new proposal
+        Proposal storage p = proposals[proposalCount];
+        p.description = _description;
+
+        // Emit an event
+        emit ProposalCreated(proposalCount, _description);
+    }
+
+    function vote(uint256 _proposalId, bool _support) public {
+        // Get the proposal
+        Proposal storage p = proposals[_proposalId];
+
+        // Make sure the proposal exists and hasn't already been executed
+        require(bytes(p.description).length > 0, "Proposal does not exist");
+        require(!p.executed, "Proposal has already been executed");
+
+        // Get the voter's balance
+        uint256 balance = IERC20(token).balanceOf(msg.sender);
+
+        // Update the vote count
+        if (_support) {
+            p.forVotes += balance;
+        } else {
+            p.againstVotes += balance;
+        }
+        p.totalVotes += balance;
+
+        // Transfer the tokens to the contract
+        IERC20(token).safeTransferFrom(msg.sender, address(this), balance);
+    }
+
+
+    function executeProposal(uint256 _proposalId) public {
+        // Get the proposal
+        Proposal storage p = proposals[_proposalId];
+
+        // Make sure the proposal exists and hasn't already been executed
+        require(bytes(p.description).length > 0, "Proposal does not exist");
+        require(!p.executed, "Proposal has already been executed");
+
+        // Make sure the proposal has enough votes in favor
+        require(p.forVotes > p.againstVotes, "Proposal does not have enough votes in favor");
+
+        // Execute the proposal
+        // ...
+
+        // Mark the proposal as executed
+        p.executed = true;
+    }
 }
+
+
 
