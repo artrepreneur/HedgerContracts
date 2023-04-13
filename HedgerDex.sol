@@ -42,9 +42,9 @@ contract HedgerDex is AccessControl {
     IERC20 public stablecoin;
     address[] nonPoolTokens;
     event Deposit(address indexed sender, uint256 usdtAmount, uint256 poolTokensMinted, uint256 lockUpPeriodEnd);
-    event Withdrawal(address indexed user, uint256 amount);
+    event Withdrawal(address indexed user, uint256 amount, uint256 shareAmount, uint256 fee);
     event Swap(address indexed user, uint256 amountIn, uint256 amountOut);
-    event TokenSwapped(address indexed token, uint256 amount);
+    event TokenSwapped(address indexed token, uint256 fromAmount, address indexed toToken, uint256 toAmount);
     event ProposalCreated(uint256 indexed proposalId, string description);
     event FundManagerSet(address indexed oldFundManager, address indexed newFundManager);
     event AdminGranted(address to);
@@ -60,9 +60,12 @@ contract HedgerDex is AccessControl {
     address public _ethToken = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // Ethereum address on Ethereum mainnet
     IOneSplitAudit oneInchRouter = IOneSplitAudit(ONEINCH_ROUTER);
 
+
     // Definition for deposits
     mapping(address => mapping(address => uint256)) deposits;
     mapping(address => AggregatorV3Interface) public tokenPriceFeeds;
+    mapping(address => uint256) lockUpPeriods;
+
 
 
     struct Proposal {
@@ -217,7 +220,7 @@ contract HedgerDex is AccessControl {
             address token = nonPoolTokens[i];
             uint256 tokenAmount = (IERC20(token).balanceOf(address(this)) * assetShareAmount) / totalBalance;
             if (tokenAmount > 0) {
-                swapTo1inch(token, address(stablecoin), tokenAmount, 0);
+                swapTo1inch(token, address(stablecoin), tokenAmount, 0, 0);
             }
         }
 
@@ -226,6 +229,8 @@ contract HedgerDex is AccessControl {
 
         // Check if the caller can withdraw without fees
         bool canWithdraw = (block.timestamp >= lockUpPeriods[msg.sender]);
+        
+
 
         // Apply the 5% fee if the caller is not eligible for fee-less withdrawal
         uint256 fee = 0;
@@ -239,7 +244,11 @@ contract HedgerDex is AccessControl {
 
 
         // Calculate the profit made since liquidity was initially added
-        uint256 initialDeposit = (deposits[msg.sender] * _shareAmount) / shareBalances[msg.sender];
+        uint256 deposit = deposits[msg.sender];
+        uint256 shareBalance = shareBalances[msg.sender];
+        uint256 initialDeposit = (deposit.mul(_shareAmount)).div(shareBalance);
+        //uint256 initialDeposit = (deposits[msg.sender] * _shareAmount) / shareBalances[msg.sender];
+
         uint256 profit = usdtAmount - initialDeposit;
 
         // Apply the 20% fee to the profit
@@ -281,7 +290,7 @@ contract HedgerDex is AccessControl {
             block.timestamp
         );
 
-        emit TokenSwapped(_fromToken, amounts[0], amounts[1]);
+        emit TokenSwapped(_fromToken, amounts[0], _toToken, amounts[1]);
 
         // Add the token to the nonPoolTokens array if it doesn't already exist
         bool tokenExists = false;
