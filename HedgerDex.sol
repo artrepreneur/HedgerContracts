@@ -34,16 +34,12 @@ contract HedgerDex is AccessControl {
     uint8 public constant DECIMALS = 18;
     uint256 public constant INITIAL_SHARE_PRICE = 10**DECIMALS;
     uint256 public lockUpDuration;
-
-    // Array to store the lockup periods for each liquidity provider
-    uint256[] lockUpPeriods;
-
+    uint256[] lockUpPeriods;   // Array to store the lockup periods for each liquidity provider
     mapping(address => uint256) public balances;
     uint256 public totalBalance;
     uint256 public totalShares;
     mapping(address => uint256) public shareBalances;
     IERC20 public stablecoin;
-
     address[] nonPoolTokens;
     event Deposit(address indexed sender, uint256 usdtAmount, uint256 poolTokensMinted, uint256 lockUpPeriodEnd);
     event Withdrawal(address indexed user, uint256 amount);
@@ -53,7 +49,7 @@ contract HedgerDex is AccessControl {
     event FundManagerSet(address indexed oldFundManager, address indexed newFundManager);
     event AdminGranted(address to);
     event AdminRevoked(address to);
-
+    uint256 constant ETH_DECIMALS = 18;
     address public fundManagementWallet;
     address constant private ONEINCH_ROUTER = address(0x11111112542D85B3EF69AE05771c2dCCff4fAa26);
     address constant private ONEINCH_EXCHANGE = address(0x11111254369792b2Ca5d084aB5eEA397cA8fa48B);
@@ -61,7 +57,7 @@ contract HedgerDex is AccessControl {
     AggregatorV3Interface internal priceFeed = AggregatorV3Interface(0x3E7d1eAB13ad0104d2750B8863b489D65364e32D); //USDT
     AggregatorV3Interface internal ethPriceFeed = AggregatorV3Interface(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419); // Ethereum price feed
     address public _stablecoin = address(0x3E7d1eAB13ad0104d2750B8863b489D65364e32D);
-    address public _ethToken = address(0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2); // Ethereum address on Ethereum mainnet
+    address public _ethToken = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // Ethereum address on Ethereum mainnet
     IOneSplitAudit oneInchRouter = IOneSplitAudit(ONEINCH_ROUTER);
 
     // Definition for deposits
@@ -80,6 +76,8 @@ contract HedgerDex is AccessControl {
 
     mapping(uint256 => Proposal) public proposals;
     uint256 public proposalCount;
+
+    mapping(address => uint256) public lockUpPeriodEnds;
 
     constructor() {//address _stablecoin
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -117,7 +115,8 @@ contract HedgerDex is AccessControl {
         }
 
         // Update the tokenPriceFeeds mapping
-        tokenPriceFeeds[_token] = _priceFeed;
+        tokenPriceFeeds[_token] = AggregatorV3Interface(_priceFeed);
+
     }
 
     function setLockUpDuration(uint256 _duration) public onlyAdmin {
@@ -173,7 +172,7 @@ contract HedgerDex is AccessControl {
 
         // Set the lock-up period for the new liquidity
         uint256 lockUpPeriodEnd = block.timestamp + lockUpDuration;
-        lockUpPeriods[msg.sender].push(lockUpPeriodEnd);
+        lockUpPeriodEnds[msg.sender] = lockUpPeriodEnd;
 
         // Emit an event to indicate the deposit and the amount of pool tokens minted
         emit Deposit(msg.sender, (_usdtAmount - fee), poolTokensToMint, lockUpPeriodEnd);
@@ -341,7 +340,7 @@ contract HedgerDex is AccessControl {
     }
 
     function getEthPrice() public view returns (uint256) {
-        (,int256 price,,,) = AggregatorV3Interface(ETH_PRICE_FEED).latestRoundData();
+        (,int256 price,,,) = AggregatorV3Interface(ethPriceFeed).latestRoundData();
         return uint256(price) * (10 ** (18 - ETH_DECIMALS));
     }
 
@@ -349,7 +348,7 @@ contract HedgerDex is AccessControl {
         uint256 decimals = uint256(IERC20(_token).decimals());
         uint256 amountWithDecimals = _amount * 10**decimals;
 
-        (uint256 expectedReturn, ) = IOneSplitAudit(ONEINCH_ROUTER).getExpectedReturn(_token, _ETHTOKEN, amountWithDecimals, 1, 0);
+        (uint256 expectedReturn, ) = IOneSplitAudit(ONEINCH_ROUTER).getExpectedReturn(_token, _ethToken, amountWithDecimals, 1, 0);
 
         uint256 expectedReturnWithDecimals = expectedReturn / 10**decimals;
 
@@ -391,15 +390,13 @@ contract HedgerDex is AccessControl {
     }
 
  
-    
 
 
-
-    function grantRole(bytes32 role, address account) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function grantRole(bytes32 role, address account) public onlyRole(DEFAULT_ADMIN_ROLE) override {
         grantRole(role, account);
     }
 
-    function revokeRole(bytes32 role, address account) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function revokeRole(bytes32 role, address account) public onlyRole(DEFAULT_ADMIN_ROLE) override {
         revokeRole(role, account);
     }
 
@@ -444,9 +441,9 @@ contract HedgerDex is AccessControl {
             // Stablecoin has a fixed price of 1
             return 10**uint256(IERC20(_token).decimals());
         } else {
-            // Get the expected return from 1inch for swapping 1 token to _ETHTOKEN
+            // Get the expected return from 1inch for swapping 1 token to _ethToken
             uint256 amountWithDecimals = 10**uint256(IERC20(_token).decimals());
-            (uint256 expectedReturn, ) = IOneSplitAudit(ONEINCH_ROUTER).getExpectedReturn(_token, _ETHTOKEN, amountWithDecimals, 1, 0);
+            (uint256 expectedReturn, ) = IOneSplitAudit(ONEINCH_ROUTER).getExpectedReturn(_token, _ethToken, amountWithDecimals, 1, 0);
 
             // Calculate the token price based on the expected return from 1inch and the current ETH price
             uint256 expectedReturnWithDecimals = expectedReturn / 10**uint256(IERC20(_token).decimals());
