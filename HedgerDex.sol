@@ -34,7 +34,6 @@ contract HedgerDex is AccessControl {
     uint8 public constant DECIMALS = 18;
     uint256 public constant INITIAL_SHARE_PRICE = 10**DECIMALS;
     uint256 public lockUpDuration;
-    uint256[] lockUpPeriods;   // Array to store the lockup periods for each liquidity provider
     mapping(address => uint256) public balances;
     uint256 public totalBalance;
     uint256 public totalShares;
@@ -62,7 +61,7 @@ contract HedgerDex is AccessControl {
 
 
     // Definition for deposits
-    mapping(address => mapping(address => uint256)) deposits;
+    mapping(address => uint256) deposits;
     mapping(address => AggregatorV3Interface) public tokenPriceFeeds;
     mapping(address => uint256) lockUpPeriods;
 
@@ -80,7 +79,7 @@ contract HedgerDex is AccessControl {
     mapping(uint256 => Proposal) public proposals;
     uint256 public proposalCount;
 
-    mapping(address => uint256) public lockUpPeriodEnds;
+    //mapping(address => uint256) public lockUpPeriodEnds;
 
     constructor() {//address _stablecoin
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -175,7 +174,7 @@ contract HedgerDex is AccessControl {
 
         // Set the lock-up period for the new liquidity
         uint256 lockUpPeriodEnd = block.timestamp + lockUpDuration;
-        lockUpPeriodEnds[msg.sender] = lockUpPeriodEnd;
+        lockUpPeriods[msg.sender] = lockUpPeriodEnd;
 
         // Emit an event to indicate the deposit and the amount of pool tokens minted
         emit Deposit(msg.sender, (_usdtAmount - fee), poolTokensToMint, lockUpPeriodEnd);
@@ -247,7 +246,6 @@ contract HedgerDex is AccessControl {
         uint256 deposit = deposits[msg.sender];
         uint256 shareBalance = shareBalances[msg.sender];
         uint256 initialDeposit = (deposit.mul(_shareAmount)).div(shareBalance);
-        //uint256 initialDeposit = (deposits[msg.sender] * _shareAmount) / shareBalances[msg.sender];
 
         uint256 profit = usdtAmount - initialDeposit;
 
