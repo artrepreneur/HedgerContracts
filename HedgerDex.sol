@@ -245,8 +245,7 @@ contract HedgerDex is AccessControl {
         // Calculate the profit made since liquidity was initially added
         uint256 deposit = deposits[msg.sender];
         uint256 shareBalance = shareBalances[msg.sender];
-        uint256 initialDeposit = (deposit.mul(_shareAmount)).div(shareBalance);
-
+        uint256 initialDeposit = SafeMath.mul(deposit, _shareAmount).div(shareBalance);
         uint256 profit = usdtAmount - initialDeposit;
 
         // Apply the 20% fee to the profit
