@@ -302,17 +302,22 @@ contract HedgerDex is AccessControl {
         }
 
         // Add the token to the tokenPriceFeeds mapping if it doesn't already exist
-        if (tokenPriceFeeds[_fromToken] == address(0)) {
+        if (address(tokenPriceFeeds[_fromToken]) == address(0)) {
             // Set the price feed for the token
             address tokenPriceFeed = getPriceFeedAddress(_fromToken);// get the address of the price feed for the token
-            tokenPriceFeeds[_fromToken] = tokenPriceFeed;
+            AggregatorV3Interface agg = AggregatorV3Interface(tokenPriceFeed);
+            tokenPriceFeeds[_fromToken] = agg;
+            // tokenPriceFeeds[_fromToken] = tokenPriceFeed;
+
+
         }
     }
 
     function getPriceFeedAddress(address _token) internal view returns (address) {
         // Get the address of the Chainlink aggregator for the token
         AggregatorV3Interface aggregator = AggregatorV3Interface(tokenPriceFeeds[_token]);
-        address priceFeedAddress = aggregator.address();
+        address priceFeedAddress = address(aggregator);
+
 
         return priceFeedAddress;
     }
