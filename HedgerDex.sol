@@ -30,6 +30,9 @@ interface IOneSplitAudit {
 
 
 
+
+
+
 contract HedgerDex is AccessControl {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
@@ -338,7 +341,8 @@ contract HedgerDex is AccessControl {
         require(getTokenPrice(_fromToken) <= (1 + _maxPriceImpact) * getExpectedTokenPrice(_fromToken,_amountIn), "Price impact too high");
 
         // Prepare the 1inch swap parameters
-        (address expectedSwap, uint256 expectedReturn) = oneInchRouter.getExpectedReturn(_fromToken, _toToken, _amountIn, 1, 0);
+        //(address expectedSwap, uint256 expectedReturn) = oneInchRouter.getExpectedReturn(_fromToken, _toToken, _amountIn, 1, 0);
+        (address expectedSwap, uint256[] memory distribution) = oneInchRouter.getExpectedReturn(_fromToken, _toToken, _amountIn, 1, 0);
         bytes memory data = abi.encodeWithSignature("swap(address,address,uint256,uint256,uint256,address,address,bytes)", _fromToken, _toToken, _amountIn, _amountOutMin, 0, address(0), expectedSwap, "");
 
         // Execute the swap on 1inch
@@ -396,6 +400,10 @@ contract HedgerDex is AccessControl {
             _expectedPrice,
             0
         );
+
+
+        //(uint256 returnAmount,) = oneInchRouter.swap(_fromToken, _toToken, _amountIn, _minAmountOut, 0, 0, expectedSwap, "");
+
 
         // Ensure that the returned amount is greater than or equal to the minimum amount out
         require(returnAmount >= _minAmountOut, "Slippage limit reached");
