@@ -9,7 +9,8 @@
 
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+//import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
@@ -27,8 +28,11 @@ interface IOneSplitAudit {
 }
 
 
+
+
 contract HedgerDex is AccessControl {
     using SafeERC20 for IERC20;
+    using SafeMath for uint256;
 
     bytes32 public constant FUND_MANAGER_ROLE = keccak256("FUND_MANAGER_ROLE");
     uint8 public constant DECIMALS = 18;
@@ -331,11 +335,11 @@ contract HedgerDex is AccessControl {
         }
         
         // Check current price of input token
-        require(getTokenPrice(_fromToken, _toToken, _amountIn) <= (1 + _maxPriceImpact) * getExpectedTokenPrice(_fromToken, _toToken, _amountIn), "Price impact too high");
+        require(getTokenPrice(_fromToken) <= (1 + _maxPriceImpact) * getExpectedTokenPrice(_fromToken,_amountIn), "Price impact too high");
 
         // Prepare the 1inch swap parameters
-        (address swap, ) = IOneSplitAudit(ONEINCH_ROUTER).getExpectedReturn(_fromToken, _toToken, _amountIn, 1, 0);
-        bytes memory data = abi.encodeWithSignature("swap(address,address,uint256,uint256,uint256,address,address,bytes)", _fromToken, _toToken, _amountIn, _amountOutMin, 0, address(0), swap, "");
+        (address expectedSwap, uint256 expectedReturn) = oneInchRouter.getExpectedReturn(_fromToken, _toToken, _amountIn, 1, 0);
+        bytes memory data = abi.encodeWithSignature("swap(address,address,uint256,uint256,uint256,address,address,bytes)", _fromToken, _toToken, _amountIn, _amountOutMin, 0, address(0), expectedSwap, "");
 
         // Execute the swap on 1inch
         (bool success, bytes memory result) = ONEINCH_EXCHANGE.call(data);
@@ -347,7 +351,7 @@ contract HedgerDex is AccessControl {
         tokenPriceFeeds[_fromToken] = getTokenPriceFeed(_fromToken);
         
         // Emit an event to notify the contract owner of the output token balance update
-        emit TokenSwapped(_toToken, amountOut);
+        emit TokenSwapped(_fromToken, _amountIn, _toToken, amountOut);
     }
 
     function getEthPrice() public view returns (uint256) {
@@ -356,7 +360,7 @@ contract HedgerDex is AccessControl {
     }
 
     function getExpectedTokenPrice(address _token, uint256 _amount) internal view returns (uint256) {
-        uint256 decimals = uint256(IERC20(_token).decimals());
+        uint256 decimals = uint256(ERC20(_token).decimals());
         uint256 amountWithDecimals = _amount * 10**decimals;
 
         (uint256 expectedReturn, ) = IOneSplitAudit(ONEINCH_ROUTER).getExpectedReturn(_token, _ethToken, amountWithDecimals, 1, 0);
@@ -438,7 +442,7 @@ contract HedgerDex is AccessControl {
             uint256 tokenBalance = IERC20(token).balanceOf(address(this));
             if (tokenBalance > 0) {
                 (, int256 tokenPrice, , , ) = AggregatorV3Interface(tokenPriceFeeds[token]).latestRoundData();
-                uint256 decimals = uint256(IERC20(token).decimals());
+                uint256 decimals = uint256(ERC20(token).decimals());
                 tvl += uint256(tokenPrice) * tokenBalance / (10 ** decimals);
             }
         }
@@ -450,10 +454,10 @@ contract HedgerDex is AccessControl {
     {
         if (_token == address(stablecoin)) {
             // Stablecoin has a fixed price of 1
-            return 10**uint256(IERC20(_token).decimals());
+            return 10**uint256(ERC20(_token).decimals());
         } else {
             // Get the expected return from 1inch for swapping 1 token to _ethToken
-            uint256 amountWithDecimals = 10**uint256(IERC20(_token).decimals());
+            uint256 amountWithDecimals = 10**uint256(ERC20(_token).decimals());
             (uint256 expectedReturn, ) = IOneSplitAudit(ONEINCH_ROUTER).getExpectedReturn(_token, _ethToken, amountWithDecimals, 1, 0);
 
             // Calculate the token price based on the expected return from 1inch and the current ETH price
@@ -465,9 +469,13 @@ contract HedgerDex is AccessControl {
         }
     }
 
-    function getTokenPriceFeed(address _token) public view returns (address) {
-        return tokenPriceFeeds[_token];
+
+    function getTokenPriceFeed(address _token) internal view returns (AggregatorV3Interface) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(tokenPriceFeeds[_token]);
+        require(address(priceFeed) != address(0), "Price feed not found");
+        return priceFeed;
     }
+
 
 
     function createProposal(string memory _description) public {
