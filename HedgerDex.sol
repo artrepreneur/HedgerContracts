@@ -51,7 +51,7 @@ contract HedgerDex is AccessControl {
     event Withdrawal(address indexed user, uint256 amount, uint256 shareAmount, uint256 fee);
     event Swap(address indexed user, uint256 amountIn, uint256 amountOut);
     event TokenSwapped(address indexed token, uint256 fromAmount, address indexed toToken, uint256 toAmount);
-    event ProposalCreated(uint256 indexed proposalId, string description);
+    event ProposalCreated(uint256 indexed proposalId, string description, uint256 amount, address targetToken);
     event FundManagerSet(address indexed oldFundManager, address indexed newFundManager);
     event AdminGranted(address to);
     event AdminRevoked(address to);
@@ -79,6 +79,8 @@ contract HedgerDex is AccessControl {
         uint256 forVotes;
         uint256 againstVotes;
         uint256 totalVotes;
+        uint256 allocationAmount;
+        address targetToken;
         bool executed;
     }
 
@@ -341,8 +343,7 @@ contract HedgerDex is AccessControl {
         require(getTokenPrice(_fromToken) <= (1 + _maxPriceImpact) * getExpectedTokenPrice(_fromToken,_amountIn), "Price impact too high");
 
         // Prepare the 1inch swap parameters
-        //(address expectedSwap, uint256 expectedReturn) = oneInchRouter.getExpectedReturn(_fromToken, _toToken, _amountIn, 1, 0);
-        (address expectedSwap, uint256[] memory distribution) = oneInchRouter.getExpectedReturn(_fromToken, _toToken, _amountIn, 1, 0);
+        (uint256 expectedSwap, uint256[] memory distribution) = oneInchRouter.getExpectedReturn(_fromToken, _toToken, _amountIn, 1, 0);
         bytes memory data = abi.encodeWithSignature("swap(address,address,uint256,uint256,uint256,address,address,bytes)", _fromToken, _toToken, _amountIn, _amountOutMin, 0, address(0), expectedSwap, "");
 
         // Execute the swap on 1inch
@@ -391,7 +392,7 @@ contract HedgerDex is AccessControl {
         IERC20(_fromToken).approve(address(oneInchRouter), _amountIn);
 
         // Call 1inch swap function with limit order
-        (uint256 returnAmount,) = oneInchRouter.swap(
+        /*(uint256 returnAmount,) = oneInchRouter.swap(
             _fromToken,
             _toToken,
             _amountIn,
@@ -399,10 +400,8 @@ contract HedgerDex is AccessControl {
             address(this),
             _expectedPrice,
             0
-        );
-
-
-        //(uint256 returnAmount,) = oneInchRouter.swap(_fromToken, _toToken, _amountIn, _minAmountOut, 0, 0, expectedSwap, "");
+        );*/
+        (uint256 returnAmount,) = oneInchRouter.getExpectedReturn(_fromToken, _toToken, _amountIn, 1, 0);
 
 
         // Ensure that the returned amount is greater than or equal to the minimum amount out
@@ -412,9 +411,6 @@ contract HedgerDex is AccessControl {
         IERC20(_toToken).safeTransfer(msg.sender, returnAmount);
     }
 
- 
-
-
     function grantRole(bytes32 role, address account) public onlyRole(DEFAULT_ADMIN_ROLE) override {
         grantRole(role, account);
     }
@@ -422,7 +418,6 @@ contract HedgerDex is AccessControl {
     function revokeRole(bytes32 role, address account) public onlyRole(DEFAULT_ADMIN_ROLE) override {
         revokeRole(role, account);
     }
-
 
     function getNonPoolTokenBalances() public view returns (address[] memory, uint256[] memory) {
         uint256[] memory NPTbalances = new uint256[](nonPoolTokens.length);
@@ -469,7 +464,7 @@ contract HedgerDex is AccessControl {
             (uint256 expectedReturn, ) = IOneSplitAudit(ONEINCH_ROUTER).getExpectedReturn(_token, _ethToken, amountWithDecimals, 1, 0);
 
             // Calculate the token price based on the expected return from 1inch and the current ETH price
-            uint256 expectedReturnWithDecimals = expectedReturn / 10**uint256(IERC20(_token).decimals());
+            uint256 expectedReturnWithDecimals = expectedReturn / 10**uint256(ERC20(_token).decimals());
             uint256 ethPrice = getEthPrice();
             uint256 tokenPrice = ethPrice * expectedReturnWithDecimals;
 
@@ -486,45 +481,21 @@ contract HedgerDex is AccessControl {
 
 
 
-    function createProposal(string memory _description) public {
+    function createProposal(string memory _description, uint256 _allocationAmount, address _targetToken) public {
         // Increment the proposal count
         proposalCount++;
 
         // Create a new proposal
         Proposal storage p = proposals[proposalCount];
         p.description = _description;
+        p.allocationAmount = _allocationAmount;
+        p.targetToken = _targetToken;
 
         // Emit an event
-        emit ProposalCreated(proposalCount, _description);
+        emit ProposalCreated(proposalCount, _description, _allocationAmount, _targetToken);
     }
 
-    /*
-    function vote(uint256 _proposalId, bool _support) public {
-        // Get the proposal
-        Proposal storage p = proposals[_proposalId];
-
-        // Make sure the proposal exists and hasn't already been executed
-        require(bytes(p.description).length > 0, "Proposal does not exist");
-        require(!p.executed, "Proposal has already been executed");
-
-        // Get the voter's balance
-        uint256 balance = shareBalances[msg.sender]; 
-        //IERC20(token).balanceOf(msg.sender);//
-
-        // Update the vote count
-        if (_support) {
-            p.forVotes += balance;
-        } else {
-            p.againstVotes += balance;
-        }
-        p.totalVotes += balance;
-
-        // Transfer the tokens to the contract
-        IERC20(token).safeTransferFrom(msg.sender, address(this), balance);
-    }
-
-
-    function executeProposal(uint256 _proposalId) public {
+    function executeProposal(uint256 _proposalId, uint256 _allocationAmount) public {
         // Get the proposal
         Proposal storage p = proposals[_proposalId];
 
@@ -536,11 +507,35 @@ contract HedgerDex is AccessControl {
         require(p.forVotes > p.againstVotes, "Proposal does not have enough votes in favor");
 
         // Execute the proposal
-        // ...
+        // Get the current balance of USDT
+        uint256 usdtBalance = stablecoin.balanceOf(address(this));//IERC20(_stablecoin).balanceOf(address(this));
+        // Calculate the amount of tokens to buy
+        uint256 tokenAmount = (usdtBalance * _allocationAmount) / totalShares;
+        address targetToken = p.targetToken;
+        // Swap USDT for the target token
+        address[] memory path = new address[](2);
+        path[0] = _stablecoin;
+        path[1] = targetToken;
+        IUniswapV2Router02(UNISWAP_ROUTER).swapExactTokensForTokens(usdtBalance, tokenAmount, path, address(this), block.timestamp + 1800);
+
+        // Set the allocation amount if the proposal is successful
+        if (p.forVotes > p.againstVotes) {
+            p.allocationAmount = _allocationAmount;
+            // Approve the allocation amount
+            IERC20(targetToken).approve(address(fundManagementWallet), _allocationAmount);
+
+            //Add Dynamic swap to stablecoin - need to add the token address when proposal is created
+            //p.targetToken
+            //p.allocationAmount
+
+        }
 
         // Mark the proposal as executed
         p.executed = true;
-    }*/
+    }
+
+  
+
 }
 
 
