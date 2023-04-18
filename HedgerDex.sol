@@ -27,12 +27,6 @@ interface IOneSplitAudit {
     ) external view returns (uint256 returnAmount, uint256[] memory distribution);
 }
 
-
-
-
-
-
-
 contract HedgerDex is AccessControl {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
@@ -65,6 +59,7 @@ contract HedgerDex is AccessControl {
     address public _stablecoin = address(0x3E7d1eAB13ad0104d2750B8863b489D65364e32D);
     address public _ethToken = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // Ethereum address on Ethereum mainnet
     IOneSplitAudit oneInchRouter = IOneSplitAudit(ONEINCH_ROUTER);
+    uint256 public constant VOTING_WINDOW = 3 days; // Define the voting window (e.g., 3 days)
 
 
     // Definition for deposits
@@ -72,23 +67,23 @@ contract HedgerDex is AccessControl {
     mapping(address => AggregatorV3Interface) public tokenPriceFeeds;
     mapping(address => uint256) lockUpPeriods;
 
-
-
     struct Proposal {
+        uint256 proposalID;
         string description;
         uint256 forVotes;
         uint256 againstVotes;
         uint256 totalVotes;
+        uint256 startTime;
+        uint256 endTime;
         uint256 allocationAmount;
         address targetToken;
         bool executed;
+        mapping(address => bool) hasVoted;
     }
-
 
     mapping(uint256 => Proposal) public proposals;
     uint256 public proposalCount;
 
-    //mapping(address => uint256) public lockUpPeriodEnds;
 
     constructor() {//address _stablecoin
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -481,21 +476,42 @@ contract HedgerDex is AccessControl {
 
 
 
+
     function createProposal(string memory _description, uint256 _allocationAmount, address _targetToken) public {
+        // Make sure the allocation amount is less than or equal to the stablecoin balance
+        require(_allocationAmount <= IERC20(stablecoin).balanceOf(address(this)), "Insufficient stablecoin balance");
+
         // Increment the proposal count
         proposalCount++;
 
         // Create a new proposal
         Proposal storage p = proposals[proposalCount];
+        p.proposalID = proposalCount;
         p.description = _description;
         p.allocationAmount = _allocationAmount;
         p.targetToken = _targetToken;
+        p.startTime =  block.timestamp;
+        p.endTime = block.timestamp + VOTING_WINDOW;
+        p.forVotes = 0;
+        p.againstVotes = 0;
 
         // Emit an event
         emit ProposalCreated(proposalCount, _description, _allocationAmount, _targetToken);
     }
 
-    function executeProposal(uint256 _proposalId, uint256 _allocationAmount) public {
+    // Modifier to check if the voting window is open for a proposal
+    modifier isVotingOpen(uint256 _proposalId) {
+        Proposal storage p = proposals[_proposalId];
+        require(block.timestamp >= p.startTime, "Voting has not started");
+        require(block.timestamp <= p.endTime, "Voting has ended");
+        _;
+    }
+
+
+    
+
+    function vote(uint256 _proposalId, bool _support) public {
+
         // Get the proposal
         Proposal storage p = proposals[_proposalId];
 
@@ -503,36 +519,73 @@ contract HedgerDex is AccessControl {
         require(bytes(p.description).length > 0, "Proposal does not exist");
         require(!p.executed, "Proposal has already been executed");
 
-        // Make sure the proposal has enough votes in favor
-        require(p.forVotes > p.againstVotes, "Proposal does not have enough votes in favor");
+        // Get voter balance
+        uint256 voterBalance = shareBalances[msg.sender]; //balanceOf(msg.sender); 
 
-        // Execute the proposal
-        // Get the current balance of USDT
-        uint256 usdtBalance = stablecoin.balanceOf(address(this));//IERC20(_stablecoin).balanceOf(address(this));
-        // Calculate the amount of tokens to buy
-        uint256 tokenAmount = (usdtBalance * _allocationAmount) / totalShares;
-        address targetToken = p.targetToken;
-        // Swap USDT for the target token
-        address[] memory path = new address[](2);
-        path[0] = _stablecoin;
-        path[1] = targetToken;
-        IUniswapV2Router02(UNISWAP_ROUTER).swapExactTokensForTokens(usdtBalance, tokenAmount, path, address(this), block.timestamp + 1800);
+        // Make sure voter has right to vote on this proposal msg.sender must own at least 1 token
+        require(voterBalance > 0, "You do not own any tokens");
 
-        // Set the allocation amount if the proposal is successful
-        if (p.forVotes > p.againstVotes) {
-            p.allocationAmount = _allocationAmount;
-            // Approve the allocation amount
-            IERC20(targetToken).approve(address(fundManagementWallet), _allocationAmount);
+        // Make sure the voter hasn't already voted
+        require(!p.hasVoted[msg.sender], "Already voted on this proposal");
 
-            //Add Dynamic swap to stablecoin - need to add the token address when proposal is created
-            //p.targetToken
-            //p.allocationAmount
-
+        // Update the vote count
+        if (_support) {
+            // vote with your balance
+            p.forVotes += voterBalance;
+        } else {
+            p.againstVotes += voterBalance;
         }
+        p.totalVotes += voterBalance;
+
+        p.executed[msg.sender] = true;
+        
+    }
+
+    function executeProposal(uint256 _proposalId) public {
+        // Get the proposal
+        Proposal storage p = proposals[_proposalId];
+
+        // Make sure the proposal exists and hasn't already been executed
+        require(bytes(p.description).length > 0, "Proposal does not exist");
+        require(!p.executed, "Proposal has already been executed");
+
+        // Define the threshold percentage
+        uint256 thresholdPercentage = 51;
+
+        // Calculate the minimum number of votes needed to pass the proposal
+        uint256 minVotesToPass = (totalSupply() * thresholdPercentage) / 100;
+
+        // Make sure the proposal has enough votes in favor
+        require(p.forVotes >= minVotesToPass, "Proposal does not meet the minimum threshold");
+
+        // Get the current balance of stablecoin
+        uint256 stablecoinBalance = IERC20(stablecoin).balanceOf(address(this));
+
+        // Calculate the amount of targetToken to buy
+        uint256 targetTokenAmount = (stablecoinBalance * p.allocationAmount) / totalShares;
+
+        // Define the path for the swap
+        address[] memory path = new address[](3);
+        path[0] = stablecoin;
+        path[1] = UNISWAP_ROUTER.WETH();
+        path[2] = p.targetToken;
+
+        // Swap stablecoin for targetToken
+        IUniswapV2Router02(UNISWAP_ROUTER).swapExactTokensForTokens(
+            stablecoinBalance, 
+            targetTokenAmount, 
+            path, 
+            address(this), 
+            block.timestamp + 1800
+        );
 
         // Mark the proposal as executed
         p.executed = true;
     }
+
+
+   
+
 
   
 
