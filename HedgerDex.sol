@@ -27,7 +27,7 @@ interface IOneSplitAudit {
     ) external view returns (uint256 returnAmount, uint256[] memory distribution);
 }
 
-contract HedgerDex is AccessControl {
+contract HedgerDex is AccessControl, ERC20 {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
 
@@ -537,7 +537,7 @@ contract HedgerDex is AccessControl {
         }
         p.totalVotes += voterBalance;
 
-        p.executed[msg.sender] = true;
+        p.executed = true;
         
     }
 
@@ -554,6 +554,8 @@ contract HedgerDex is AccessControl {
 
         // Calculate the minimum number of votes needed to pass the proposal
         uint256 minVotesToPass = (totalSupply() * thresholdPercentage) / 100;
+
+
 
         // Make sure the proposal has enough votes in favor
         require(p.forVotes >= minVotesToPass, "Proposal does not meet the minimum threshold");
