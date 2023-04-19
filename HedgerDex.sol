@@ -15,7 +15,8 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+//import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+
 
 interface IOneSplitAudit {
     function getExpectedReturn(
@@ -27,9 +28,9 @@ interface IOneSplitAudit {
     ) external view returns (uint256 returnAmount, uint256[] memory distribution);
 }
 
-contract HedgerDex is AccessControl, ERC20("HedgerDex Token", "HDT") {
-    using SafeERC20 for IERC20;
-    using SafeMath for uint256;
+contract HedgerDexToken is AccessControl, ERC20("HedgerDex Token", "HDT") {
+    //using SafeERC20 for IERC20;
+    //using SafeMath for uint256;
 
     bytes32 public constant FUND_MANAGER_ROLE = keccak256("FUND_MANAGER_ROLE");
     uint8 public constant DECIMALS = 18;
@@ -160,10 +161,11 @@ contract HedgerDex is AccessControl, ERC20("HedgerDex Token", "HDT") {
         uint256 fee = (_usdtAmount * 2) / 100;
 
         // Transfer USDT from the user to the fund
-        stablecoin.safeTransferFrom(msg.sender, address(this), _usdtAmount);
+        SafeERC20.safeTransferFrom(stablecoin, msg.sender, address(this), _usdtAmount);
+
 
         // Transfer 2% fee to the fund management wallet
-        stablecoin.safeTransfer(fundManagementWallet, fee);
+        SafeERC20.safeTransfer(stablecoin, fundManagementWallet, fee);
 
         // Increase the user's balance and the total pool balance
         balances[msg.sender] += (_usdtAmount - fee);
@@ -213,7 +215,7 @@ contract HedgerDex is AccessControl, ERC20("HedgerDex Token", "HDT") {
         require(_shareAmount > 0, "Amount must be greater than zero");
 
         // Get the current net asset value of the pool from the oracle
-        uint256 nav = getNav();
+        //uint256 nav = getNav();
 
         // Calculate the pro-rata share of each asset in the pool
         uint256 assetShareAmount = (_shareAmount * totalBalance) / totalShares;
@@ -275,7 +277,7 @@ contract HedgerDex is AccessControl, ERC20("HedgerDex Token", "HDT") {
      * Additionally, you will need to make sure that the contract has approved the Uniswap router to spend the appropriate amount of _fromToken before calling the swapExactTokensForTokens function.
      * Swaps through a fund manager
     */
-    function swapToUni(address _fromToken, address _toToken, uint256 _amountIn, uint256 _amountOutMin, bytes memory _data) public onlyRole(FUND_MANAGER_ROLE) {
+    /*function swapToUni(address _fromToken, address _toToken, uint256 _amountIn, uint256 _amountOutMin) public onlyRole(FUND_MANAGER_ROLE) {//, bytes memory _data
         IERC20(_fromToken).safeApprove(address(UNISWAP_ROUTER), _amountIn);
         
         // Prepare the path array for the swap
@@ -315,7 +317,7 @@ contract HedgerDex is AccessControl, ERC20("HedgerDex Token", "HDT") {
 
 
         }
-    }
+    }*/
 
     function getPriceFeedAddress(address _token) internal view returns (address) {
         // Get the address of the Chainlink aggregator for the token
@@ -326,7 +328,7 @@ contract HedgerDex is AccessControl, ERC20("HedgerDex Token", "HDT") {
         return priceFeedAddress;
     }
 
-    function swapTo1inch(address _fromToken, address _toToken, uint256 _amountIn, uint256 _amountOutMin, uint256 _maxPriceImpact) public onlyRole(FUND_MANAGER_ROLE) {
+    function swapTo1inch(address _fromToken, address _toToken, uint256 _amountIn, uint256 _amountOutMin, uint256 _maxPriceImpact) internal onlyRole(FUND_MANAGER_ROLE) {
         IERC20(_fromToken).safeApprove(address(ONEINCH_ROUTER), _amountIn);
 
         // Add the new non-pool token to the array if it doesn't exist
@@ -555,8 +557,6 @@ contract HedgerDex is AccessControl, ERC20("HedgerDex Token", "HDT") {
         // Calculate the minimum number of votes needed to pass the proposal
         uint256 minVotesToPass = (totalSupply() * thresholdPercentage) / 100;
 
-
-
         // Make sure the proposal has enough votes in favor
         require(p.forVotes >= minVotesToPass, "Proposal does not meet the minimum threshold");
 
@@ -566,24 +566,17 @@ contract HedgerDex is AccessControl, ERC20("HedgerDex Token", "HDT") {
         // Calculate the amount of targetToken to buy
         uint256 targetTokenAmount = (stablecoinBalance * p.allocationAmount) / totalShares;
 
-        // Define the path for the swap
-        address[] memory path = new address[](3);
-        path[0] = address(stablecoin);
-        path[1] = IUniswapV2Router02(UNISWAP_ROUTER).WETH();
-        path[2] = p.targetToken;
+        // Check current price of stablecoin
+        uint256 maxPriceImpact = 0; // You can set your desired maximum price impact here
+        require(getTokenPrice(stablecoin) <= (1 + maxPriceImpact) * getExpectedTokenPrice(stablecoin, stablecoinBalance), "Price impact too high");
 
-        // Swap stablecoin for targetToken
-        IUniswapV2Router02(UNISWAP_ROUTER).swapExactTokensForTokens(
-            stablecoinBalance, 
-            targetTokenAmount, 
-            path, 
-            address(this), 
-            block.timestamp + 1800
-        );
+        // Swap stablecoin for targetToken using 1inch
+        swapTo1inch(stablecoin, p.targetToken, stablecoinBalance, targetTokenAmount, maxPriceImpact);
 
         // Mark the proposal as executed
         p.executed = true;
     }
+
 
 
    
