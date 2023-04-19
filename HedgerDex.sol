@@ -27,7 +27,7 @@ interface IOneSplitAudit {
     ) external view returns (uint256 returnAmount, uint256[] memory distribution);
 }
 
-contract HedgerDex is AccessControl, ERC20 {
+contract HedgerDex is AccessControl, ERC20("HedgerDex Token", "HDT") {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
 
@@ -568,8 +568,8 @@ contract HedgerDex is AccessControl, ERC20 {
 
         // Define the path for the swap
         address[] memory path = new address[](3);
-        path[0] = stablecoin;
-        path[1] = UNISWAP_ROUTER.WETH();
+        path[0] = address(stablecoin);
+        path[1] = IUniswapV2Router02(UNISWAP_ROUTER).WETH();
         path[2] = p.targetToken;
 
         // Swap stablecoin for targetToken
