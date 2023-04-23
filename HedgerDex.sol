@@ -577,11 +577,6 @@ contract HedgerDexToken is AccessControl, ERC20("HedgerDex Token", "HDT") {
         p.executed = true;
     }
 
-
-
-   
-
-
   
 
 }
