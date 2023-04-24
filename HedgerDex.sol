@@ -4,6 +4,16 @@
 * This is a solidity smart contract for a hedge fund. The contract uses the OpenZeppelin library to import ERC20 and AccessControl contracts, and also interfaces with Chainlink and UniswapV2Router02 for token swaps. The fund manager can add non-pool tokens and their corresponding price feeds to the contract, and users can deposit and withdraw USDT to and from the pool. The contract calculates the net asset value of the pool using Chainlink price feeds and the balances of non-pool tokens, and uses 1inch to swap non-pool tokens to USDT. The fund manager can also swap tokens using UniswapV2Router02. The contract also has role-based access control, with a DEFAULT_ADMIN_ROLE and a FUND_MANAGER_ROLE.
 * Note that multichain portfolios are only possible by moving underlying liqduity through a
 * stablecoin brigde, that is until teleport has the liquidity it needs.
+* contracts/
+|-- Governance.sol
+|-- HedgerDex.sol
+|-- Investments.sol
+|-- Redemptions.sol
+|-- Rewards.sol
+libraries/
+|-- Pricing.sol
+|-- TokenManagement.sol
+|-- Utils.sol
 */
 
 
@@ -234,7 +244,6 @@ contract HedgerDexToken is AccessControl, ERC20("HedgerDex Token", "HDT") {
 
         // Check if the caller can withdraw without fees
         bool canWithdraw = (block.timestamp >= lockUpPeriods[msg.sender]);
-        
 
 
         // Apply the 5% fee if the caller is not eligible for fee-less withdrawal
@@ -576,8 +585,6 @@ contract HedgerDexToken is AccessControl, ERC20("HedgerDex Token", "HDT") {
         // Mark the proposal as executed
         p.executed = true;
     }
-
-  
 
 }
 
