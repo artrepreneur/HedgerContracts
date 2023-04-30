@@ -64,7 +64,7 @@ contract Governance is AccessControl {
     }
 
     function getTokenPrice(address _token) public view returns (uint256) {
-        return hedgerDex.getTokenPrice(_token);
+        return hedgerDex.getExpectedTokenPrice(_token,1);
     }
 
     function getExpectedTokenPrice(address _token, uint256 amount) public view returns (uint256) {
