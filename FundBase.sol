@@ -1,18 +1,16 @@
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "./IOneSplitAudit.sol"; // Make sure to import the IOneSplitAudit interface
 
 
-contract FundBase is AccessControl {
-    // State variables
-    address[] public nonPoolTokens;
-    mapping(address => AggregatorV3Interface) public tokenPriceFeeds;
-    AggregatorV3Interface internal priceFeed = AggregatorV3Interface(0x3E7d1eAB13ad0104d2750B8863b489D65364e32D); //USDT
-    uint8 public constant DECIMALS = 18;
+contract FundBase is ERC20, AccessControl {
+    using SafeERC20 for IERC20;
+
+    bytes32 public constant FUND_MANAGER_ROLE = keccak256("FUND_MANAGER_ROLE");
 
      // State variables
     address[] public nonPoolTokens;
