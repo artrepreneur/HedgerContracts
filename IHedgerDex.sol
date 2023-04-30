@@ -7,7 +7,6 @@ interface IHedgerDex {
     function totalSupply() external view returns (uint256);
     function stablecoin() external view returns (address);
     function swapTo1inch(address fromToken, address toToken, uint256 fromAmount, uint256 minReturn, uint256 maxPriceImpact) external;
-    function getTokenPrice(address token) external view returns (uint256);
     function getExpectedTokenPrice(address token, uint256 amount) external view returns (uint256);
     function tokenPriceFeeds(address token) external view returns (address);
     function getTokenPriceFeed(address token) external view returns (AggregatorV3Interface);
