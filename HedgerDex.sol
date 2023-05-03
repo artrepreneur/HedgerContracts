@@ -9,46 +9,39 @@
 
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+//import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "./FundBase.sol";
 import "./IOneSplitAudit.sol"; // Make sure to import the IOneSplitAudit interface
 
 
-contract HedgerDex is FundBase, AccessControl, ERC20("HedgerDex Token", "HDT") {
+
+contract HedgerDex is FundBase, ERC20("HedgerDex Token", "HDT"), AccessControl {
+
     bytes32 public constant FUND_MANAGER_ROLE = keccak256("FUND_MANAGER_ROLE");
-    uint8 public constant DECIMALS = 18;
     uint256 public lockUpDuration;
     mapping(address => uint256) public balances;
     uint256 public totalBalance;
     uint256 public totalShares;
     mapping(address => uint256) public shareBalances;
     IERC20 public stablecoin;
-    //address[] nonPoolTokens;
 
     event Deposit(address indexed sender, uint256 usdtAmount, uint256 poolTokensMinted, uint256 lockUpPeriodEnd);
     event Withdrawal(address indexed user, uint256 amount, uint256 shareAmount, uint256 fee);
     event TokenSwapped(address indexed token, uint256 fromAmount, address indexed toToken, uint256 toAmount);
     event FundManagerSet(address indexed oldFundManager, address indexed newFundManager);
 
-    uint256 constant ETH_DECIMALS = 18;
     address public fundManagementWallet;
     address constant private ONEINCH_ROUTER = address(0x11111112542D85B3EF69AE05771c2dCCff4fAa26);
     address constant private ONEINCH_EXCHANGE = address(0x11111254369792b2Ca5d084aB5eEA397cA8fa48B);
-    AggregatorV3Interface internal priceFeed = AggregatorV3Interface(0x3E7d1eAB13ad0104d2750B8863b489D65364e32D); //USDT
-    AggregatorV3Interface internal ethPriceFeed = AggregatorV3Interface(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419); // Ethereum price feed
     address public _stablecoin = address(0x3E7d1eAB13ad0104d2750B8863b489D65364e32D);
-    address public _ethToken = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // Ethereum address on Ethereum mainnet
     IOneSplitAudit oneInchRouter = IOneSplitAudit(ONEINCH_ROUTER);
 
     // Definition for deposits
     mapping(address => uint256) deposits;
-    //mapping(address => AggregatorV3Interface) public tokenPriceFeeds;
     mapping(address => uint256) lockUpPeriods;
-
-
 
     constructor() {
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -143,6 +136,23 @@ contract HedgerDex is FundBase, AccessControl, ERC20("HedgerDex Token", "HDT") {
     function setLockUpDuration(uint256 _duration) public onlyAdmin {
         lockUpDuration = _duration;
     }
+
+    // Fund manager management
+    function setFundManager(address _newFundManager) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        address oldFundManager = fundManagementWallet;
+        require(_newFundManager != address(0), "Invalid address");
+        fundManagementWallet = _newFundManager;
+        emit FundManagerSet(oldFundManager, _newFundManager);
+    }
+
+    function setTokenPriceFeed(address token, AggregatorV3Interface priceFeed) external onlyRole(FUND_MANAGER_ROLE) {
+        _setTokenPriceFeed(token, priceFeed);
+    }
+
+    function addNonPoolToken(address _token) external onlyRole(FUND_MANAGER_ROLE) {
+        _addNonPoolToken(_token);
+    }
+
 
 }
 
