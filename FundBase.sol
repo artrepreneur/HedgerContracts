@@ -2,15 +2,11 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "./IOneSplitAudit.sol"; // Make sure to import the IOneSplitAudit interface
 
-
-contract FundBase is ERC20, AccessControl {
+contract FundBase {
     using SafeERC20 for IERC20;
-
-    bytes32 public constant FUND_MANAGER_ROLE = keccak256("FUND_MANAGER_ROLE");
 
      // State variables
     address[] public nonPoolTokens;
@@ -21,7 +17,6 @@ contract FundBase is ERC20, AccessControl {
     address public _ethToken;
     uint8 public constant DECIMALS = 18;
     uint8 public constant ETH_DECIMALS = 18;
-    address public fundManagementWallet;
 
     
     // Utility functions
@@ -35,15 +30,6 @@ contract FundBase is ERC20, AccessControl {
         }
 
         return (nonPoolTokens, NPTbalances);
-    }
-
-    function setTokenPriceFeed(address token, AggregatorV3Interface priceFeed) external onlyRole(FUND_MANAGER_ROLE) {
-        tokenPriceFeeds[token] = priceFeed;
-    }
-
-    function addNonPoolToken(address _token) external onlyRole(FUND_MANAGER_ROLE) {
-        require(!isNonPoolToken(_token), "Token is already a non-pool token");
-        nonPoolTokens.push(_token);
     }
 
     function isNonPoolToken(address _token) public view returns (bool) {
@@ -96,25 +82,14 @@ contract FundBase is ERC20, AccessControl {
         return tokenPrice;
     }
 
-    /*
-    // These are in AccessControl
-    function grantRole(bytes32 role, address account) public onlyRole(DEFAULT_ADMIN_ROLE) override {
-        super.grantRole(role, account);
+    function _setTokenPriceFeed(address token, AggregatorV3Interface priceFeed) internal {
+        tokenPriceFeeds[token] = priceFeed;
     }
 
-
-    function revokeRole(bytes32 role, address account) public onlyRole(DEFAULT_ADMIN_ROLE) override {
-        super.revokeRole(role, account);
-
-    }*/
-
-    // Fund manager management
-    function setFundManager(address _newFundManager) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        address oldFundManager = fundManagementWallet;
-        require(_newFundManager != address(0), "Invalid address");
-        fundManagementWallet = _newFundManager;
-        emit FundManagerSet(oldFundManager, _newFundManager);
+    function _addNonPoolToken(address _token) internal {
+        require(!isNonPoolToken(_token), "Token is already a non-pool token");
+        nonPoolTokens.push(_token);
     }
 
-
+ 
 }
