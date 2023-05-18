@@ -91,5 +91,4 @@ contract FundBase {
         nonPoolTokens.push(_token);
     }
 
- 
 }
