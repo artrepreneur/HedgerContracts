@@ -1,4 +1,3 @@
-
 // SPDX-License-Identifier: MIT
 /*
 * This is a solidity smart contract for a hedge fund. The contract uses the OpenZeppelin library to import ERC20 and AccessControl contracts, and also interfaces with Chainlink and UniswapV2Router02 for token swaps. The fund manager can add non-pool tokens and their corresponding price feeds to the contract, and users can deposit and withdraw USDT to and from the pool. The contract calculates the net asset value of the pool using Chainlink price feeds and the balances of non-pool tokens, and uses 1inch to swap non-pool tokens to USDT. The fund manager can also swap tokens using UniswapV2Router02. The contract also has role-based access control, with a DEFAULT_ADMIN_ROLE and a FUND_MANAGER_ROLE.
